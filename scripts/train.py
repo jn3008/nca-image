@@ -32,6 +32,11 @@ def train(args: argparse.Namespace) -> None:
     device = choose_device(args.device)
     run_dir = args.out / args.name
     run_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint = None
+    start_step = 0
+
+    if args.resume is not None:
+        checkpoint = torch.load(args.resume, map_location=device, weights_only=False)
 
     target = pad_target(load_target(args.target, args.size), args.padding).to(device)
     _, height, width = target.shape
@@ -52,10 +57,36 @@ def train(args: argparse.Namespace) -> None:
     pool = make_seed(args.pool_size, args.channels, height, width, device)
     losses: list[float] = []
 
+    if checkpoint is not None:
+        model.load_state_dict(checkpoint["model_state"])
+        start_step = int(checkpoint.get("step", 0))
+        losses = list(checkpoint.get("losses", []))
+
+        optimizer_state = checkpoint.get("optimizer_state")
+        if optimizer_state is not None:
+            optimizer.load_state_dict(optimizer_state)
+
+        scheduler_state = checkpoint.get("scheduler_state")
+        if scheduler_state is not None:
+            scheduler.load_state_dict(scheduler_state)
+
+        saved_pool = checkpoint.get("pool")
+        if saved_pool is not None:
+            pool = saved_pool.to(device)
+
+        saved_target = checkpoint.get("target")
+        if saved_target is not None and tuple(saved_target.shape) != tuple(target.cpu().shape):
+            raise ValueError(
+                f"resume target shape {tuple(saved_target.shape)} does not match "
+                f"current target shape {tuple(target.cpu().shape)}"
+            )
+
+        print(f"resumed {args.resume} from step {start_step}")
+
     for name, param in model.named_parameters():
         print(name, param.shape, param.numel(), param.requires_grad)
 
-    progress = trange(args.steps, desc="train")
+    progress = trange(start_step, args.steps, desc="train")
     for step in progress:
         indices = torch.randint(args.pool_size, (args.batch_size,), device=device)
         x = pool[indices]
@@ -63,8 +94,8 @@ def train(args: argparse.Namespace) -> None:
         if step < args.seed_steps or random.random() < args.seed_probability:
             x = make_seed(args.batch_size, args.channels, height, width, device)
 
-        if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
-            x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
+        # if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
+        #     x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
 
         roll_steps = random.randint(args.min_roll_steps, args.max_roll_steps)
         x = model(x, steps=roll_steps)
@@ -88,7 +119,17 @@ def train(args: argparse.Namespace) -> None:
         progress.set_postfix(loss=f"{value:.5f}", lr=f"{scheduler.get_last_lr()[0]:.1e}")
 
         if (step + 1) % args.checkpoint_every == 0 or step + 1 == args.steps:
-            save_checkpoint(run_dir / "checkpoint.pt", model, args, target.cpu(), step + 1, losses)
+            save_checkpoint(
+                run_dir / "checkpoint.pt",
+                model,
+                optimizer,
+                scheduler,
+                pool,
+                args,
+                target.cpu(),
+                step + 1,
+                losses,
+            )
 
     with open(run_dir / "losses.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -99,6 +140,9 @@ def train(args: argparse.Namespace) -> None:
 def save_checkpoint(
     path: Path,
     model: NeuralCA,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    pool: torch.Tensor,
     args: argparse.Namespace,
     target: torch.Tensor,
     step: int,
@@ -106,13 +150,17 @@ def save_checkpoint(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     config = vars(args).copy()
-    config["target"] = str(config["target"])
-    config["out"] = str(config["out"])
+    for key, value in config.items():
+        if isinstance(value, Path):
+            config[key] = str(value)
     torch.save(
         {
             "step": step,
             "model_config": model.config(),
             "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "scheduler_state": scheduler.state_dict(),
+            "pool": pool.detach().cpu(),
             "target": target,
             "train_config": config,
             "losses": losses,
@@ -128,24 +176,25 @@ def main() -> None:
     parser.add_argument("--target", type=Path, default=Path("assets/target.png"))
     parser.add_argument("--out", type=Path, default=Path("outputs/runs"))
     parser.add_argument("--name", default="baseline")
+    parser.add_argument("--resume", type=Path, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--size", type=int, default=None)
-    parser.add_argument("--padding", type=int, default=8)
+    parser.add_argument("--padding", type=int, default=0) # default=8)
     parser.add_argument("--channels", type=int, default=16)
     parser.add_argument("--hidden-size", type=int, default=128)
     parser.add_argument("--fire-rate", type=float, default=0.5)
-    parser.add_argument("--perception", choices=["identity", "sobel", "sobel_laplace"], default="sobel_laplace")
+    parser.add_argument("--perception", choices=["identity", "sobel", "sobel_laplace"], default="sobel") #default="sobel_laplace")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--pool-size", type=int, default=256)
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--seed-steps", type=int, default=200)
     parser.add_argument("--seed-probability", type=float, default=0.1)
-    parser.add_argument("--min-roll-steps", type=int, default=32)
+    parser.add_argument("--min-roll-steps", type=int, default=64)
     parser.add_argument("--max-roll-steps", type=int, default=96)
     parser.add_argument("--lr", type=float, default=2e-3)
     parser.add_argument("--grad-clip", type=float, default=1.0)
-    parser.add_argument("--checkpoint-every", type=int, default=250)
-    parser.add_argument("--reset-worst-every", type=int, default=25)
+    parser.add_argument("--checkpoint-every", type=int, default=25) # default=250)
+    parser.add_argument("--reset-worst-every", type=int, default=1) # default=25)
     parser.add_argument("--damage", action="store_true")
     parser.add_argument("--damage-after", type=int, default=500)
     parser.add_argument("--damage-probability", type=float, default=0.5)
