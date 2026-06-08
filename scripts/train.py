@@ -88,11 +88,15 @@ def train(args: argparse.Namespace) -> None:
 
     progress = trange(start_step, args.steps, desc="train")
     for step in progress:
-        indices = torch.randint(args.pool_size, (args.batch_size,), device=device)
-        x = pool[indices]
-
-        if step < args.seed_steps or random.random() < args.seed_probability:
+        indices = None
+        if args.no_pool:
             x = make_seed(args.batch_size, args.channels, height, width, device)
+        else:
+            indices = torch.randint(args.pool_size, (args.batch_size,), device=device)
+            x = pool[indices]
+
+            if step < args.seed_steps or random.random() < args.seed_probability:
+                x = make_seed(args.batch_size, args.channels, height, width, device)
 
         # if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
         #     x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
@@ -107,12 +111,13 @@ def train(args: argparse.Namespace) -> None:
         optimizer.step()
         scheduler.step()
 
-        with torch.no_grad():
-            pool[indices] = x.detach()
-            if step % args.reset_worst_every == 0:
-                errors = (pool[:, :4] - target.unsqueeze(0)).square().mean(dim=(1, 2, 3))
-                worst = errors.argmax()
-                pool[worst : worst + 1] = make_seed(1, args.channels, height, width, device)
+        if not args.no_pool:
+            with torch.no_grad():
+                pool[indices] = x.detach()
+                if step % args.reset_worst_every == 0:
+                    errors = (pool[:, :4] - target.unsqueeze(0)).square().mean(dim=(1, 2, 3))
+                    worst = errors.argmax()
+                    pool[worst : worst + 1] = make_seed(1, args.channels, height, width, device)
 
         value = float(loss.detach().cpu())
         losses.append(value)
@@ -186,6 +191,7 @@ def main() -> None:
     parser.add_argument("--perception", choices=["identity", "sobel", "sobel_laplace"], default="sobel") #default="sobel_laplace")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--pool-size", type=int, default=256)
+    parser.add_argument("--no-pool", action="store_true")
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--seed-steps", type=int, default=200)
     parser.add_argument("--seed-probability", type=float, default=0.1)
