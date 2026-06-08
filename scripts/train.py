@@ -134,7 +134,8 @@ def train(args: argparse.Namespace) -> None:
 
         if not args.no_pool:
             with torch.no_grad():
-                pool[indices] = x.detach()
+                if indices is not None:
+                    pool[indices] = x.detach()
 
         value = float(loss.detach().cpu())
         losses.append(value)
