@@ -91,7 +91,7 @@ class NeuralCA(nn.Module):
                 dx = dx * update_mask
             x = x + dx
             post_life = self.living_mask(x)
-            x = x * (pre_life | post_life)
+            x = x * (pre_life & post_life)
         return x
 
     def config(self) -> dict[str, object]:
@@ -101,4 +101,3 @@ class NeuralCA(nn.Module):
             "fire_rate": self.fire_rate,
             "perception": self.perception,
         }
-

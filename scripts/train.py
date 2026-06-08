@@ -56,9 +56,8 @@ def train(args: argparse.Namespace) -> None:
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones=[args.steps // 2, args.steps * 3 // 4], gamma=0.3
+        optimizer, milestones=[args.lr_decay_step], gamma=args.lr_decay_gamma
     )
-    loss_fn = nn.MSELoss()
 
     pool = make_seed(args.pool_size, args.channels, height, width, device)
     losses: list[float] = []
@@ -88,6 +87,11 @@ def train(args: argparse.Namespace) -> None:
             )
 
         print(f"resumed {args.resume} from step {start_step}")
+        if start_step >= args.steps:
+            print(
+                f"checkpoint is already at step {start_step}; "
+                f"--steps {args.steps} means no additional training will run"
+            )
 
     for name, param in model.named_parameters():
         print(name, param.shape, param.numel(), param.requires_grad)
@@ -109,7 +113,8 @@ def train(args: argparse.Namespace) -> None:
 
         roll_steps = random.randint(args.min_roll_steps, args.max_roll_steps)
         x = model(x, steps=roll_steps)
-        loss = loss_fn(x[:, :4], target_batch)
+        per_sample_loss = (x[:, :4] - target_batch).square().mean(dim=(1, 2, 3))
+        loss = per_sample_loss.mean()
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -207,6 +212,8 @@ def main() -> None:
     parser.add_argument("--min-roll-steps", type=int, default=64)
     parser.add_argument("--max-roll-steps", type=int, default=96)
     parser.add_argument("--lr", type=float, default=2e-3)
+    parser.add_argument("--lr-decay-step", type=int, default=2000)
+    parser.add_argument("--lr-decay-gamma", type=float, default=0.1)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--grad-normalize", action="store_true")
     parser.add_argument("--checkpoint-every", type=int, default=25) # default=250)
