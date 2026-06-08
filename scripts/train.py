@@ -102,15 +102,18 @@ def train(args: argparse.Namespace) -> None:
         if args.no_pool:
             x = make_seed(args.batch_size, args.channels, height, width, device)
         else:
-            indices = torch.randint(args.pool_size, (args.batch_size,), device=device)
-            x = pool[indices]
+            if step < args.pool_after:
+                x = make_seed(args.batch_size, args.channels, height, width, device)
+            else:
+                indices = torch.randint(args.pool_size, (args.batch_size,), device=device)
+                x = pool[indices]
 
-            with torch.no_grad():
-                sample_errors = (x[:, :4] - target.unsqueeze(0)).square().mean(dim=(1, 2, 3))
-                order = sample_errors.argsort(descending=True)
-                x = x[order]
-                indices = indices[order]
-                x[:1] = make_seed(1, args.channels, height, width, device)
+                with torch.no_grad():
+                    sample_errors = (x[:, :4] - target.unsqueeze(0)).square().mean(dim=(1, 2, 3))
+                    order = sample_errors.argsort(descending=True)
+                    x = x[order]
+                    indices = indices[order]
+                    x[:1] = make_seed(1, args.channels, height, width, device)
 
         if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
             x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
@@ -206,6 +209,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--pool-size", type=int, default=256)
     parser.add_argument("--no-pool", action="store_true")
+    parser.add_argument("--pool-after", type=int, default=300)
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--seed-steps", type=int, default=200)
     parser.add_argument("--seed-probability", type=float, default=0.1)
@@ -216,8 +220,7 @@ def main() -> None:
     parser.add_argument("--lr-decay-gamma", type=float, default=0.1)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--grad-normalize", action="store_true")
-    parser.add_argument("--checkpoint-every", type=int, default=25) # default=250)
-    parser.add_argument("--reset-worst-every", type=int, default=1) # default=25)
+    parser.add_argument("--checkpoint-every", type=int, default=100) # default=250)
     parser.add_argument("--damage", action="store_true")
     parser.add_argument("--damage-after", type=int, default=500)
     parser.add_argument("--damage-probability", type=float, default=0.5)
