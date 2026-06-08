@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NCA WebGPU Simulator</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+
+<body>
+  <main class="shell">
+    <section class="toolbar">
+      <div class="title">
+        <h1>NCA WebGPU Simulator</h1>
+        <p id="status">Starting...</p>
+      </div>
+      <div class="controls">
+        <button id="toggle" type="button">Pause</button>
+        <button id="step" type="button">Step</button>
+        <button id="reset" type="button">Reset</button>
+        <label>
+          Steps/frame
+          <input id="stepsPerFrame" type="range" min="1" max="8" value="1" />
+          <span id="stepsValue">1</span>
+        </label>
+      </div>
+    </section>
+    <canvas id="canvas" width="720" height="720"></canvas>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
