@@ -105,8 +105,12 @@ def train(args: argparse.Namespace) -> None:
             indices = torch.randint(args.pool_size, (args.batch_size,), device=device)
             x = pool[indices]
 
-            if step < args.seed_steps or random.random() < args.seed_probability:
-                x = make_seed(args.batch_size, args.channels, height, width, device)
+            with torch.no_grad():
+                sample_errors = (x[:, :4] - target.unsqueeze(0)).square().mean(dim=(1, 2, 3))
+                order = sample_errors.argsort(descending=True)
+                x = x[order]
+                indices = indices[order]
+                x[:1] = make_seed(1, args.channels, height, width, device)
 
         # if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
         #     x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
@@ -128,10 +132,6 @@ def train(args: argparse.Namespace) -> None:
         if not args.no_pool:
             with torch.no_grad():
                 pool[indices] = x.detach()
-                if step % args.reset_worst_every == 0:
-                    errors = (pool[:, :4] - target.unsqueeze(0)).square().mean(dim=(1, 2, 3))
-                    worst = errors.argmax()
-                    pool[worst : worst + 1] = make_seed(1, args.channels, height, width, device)
 
         value = float(loss.detach().cpu())
         losses.append(value)
