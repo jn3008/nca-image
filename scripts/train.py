@@ -28,6 +28,12 @@ def choose_device(name: str) -> torch.device:
     return torch.device(name)
 
 
+def normalize_parameter_grads(parameters, eps: float = 1e-8) -> None:
+    for parameter in parameters:
+        if parameter.grad is not None:
+            parameter.grad.div_(parameter.grad.norm() + eps)
+
+
 def train(args: argparse.Namespace) -> None:
     device = choose_device(args.device)
     run_dir = args.out / args.name
@@ -107,7 +113,10 @@ def train(args: argparse.Namespace) -> None:
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+        if args.grad_normalize:
+            normalize_parameter_grads(model.parameters())
+        elif args.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         optimizer.step()
         scheduler.step()
 
@@ -199,6 +208,7 @@ def main() -> None:
     parser.add_argument("--max-roll-steps", type=int, default=96)
     parser.add_argument("--lr", type=float, default=2e-3)
     parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--grad-normalize", action="store_true")
     parser.add_argument("--checkpoint-every", type=int, default=25) # default=250)
     parser.add_argument("--reset-worst-every", type=int, default=1) # default=25)
     parser.add_argument("--damage", action="store_true")
