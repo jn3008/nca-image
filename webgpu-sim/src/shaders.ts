@@ -21,11 +21,15 @@ fn cellIndex(x: u32, y: u32, c: u32) -> u32 {
   return ((y * params.width + x) * CHANNELS) + c;
 }
 
+fn wrapCoord(v: i32, size: u32) -> u32 {
+  let s = i32(size);
+  return u32(((v % s) + s) % s);
+}
+
 fn sampleState(xi: i32, yi: i32, c: u32) -> f32 {
-  if (xi < 0 || yi < 0 || xi >= i32(params.width) || yi >= i32(params.height)) {
-    return 0.0;
-  }
-  return inputState[cellIndex(u32(xi), u32(yi), c)];
+  let x = wrapCoord(xi, params.width);
+  let y = wrapCoord(yi, params.height);
+  return inputState[cellIndex(x, y, c)];
 }
 
 fn aliveAt(xi: i32, yi: i32) -> bool {
@@ -215,8 +219,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     return;
   }
 
-  let dx = i32(x) - i32(params.x);
-  let dy = i32(y) - i32(params.y);
+  let rawDx = abs(i32(x) - i32(params.x));
+  let rawDy = abs(i32(y) - i32(params.y));
+  let dx = min(rawDx, i32(params.width) - rawDx);
+  let dy = min(rawDy, i32(params.height) - rawDy);
   let r = i32(params.radius);
   if (dx * dx + dy * dy > r * r) {
     return;
