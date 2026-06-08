@@ -112,8 +112,8 @@ def train(args: argparse.Namespace) -> None:
                 indices = indices[order]
                 x[:1] = make_seed(1, args.channels, height, width, device)
 
-        # if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
-        #     x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
+        if args.damage and step >= args.damage_after and random.random() < args.damage_probability:
+            x = random_damage(x, fraction=random.uniform(0.05, args.max_damage), shape=args.damage_shape)
 
         roll_steps = random.randint(args.min_roll_steps, args.max_roll_steps)
         x = model(x, steps=roll_steps)
