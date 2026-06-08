@@ -185,3 +185,45 @@ fn fs(input: VertexOut) -> @location(0) vec4<f32> {
   return vec4<f32>(rgb, 1.0);
 }
 `;
+
+export const eraseShader = /* wgsl */ `
+struct EraseParams {
+  width: u32,
+  height: u32,
+  x: u32,
+  y: u32,
+  radius: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
+};
+
+@group(0) @binding(0) var<storage, read_write> state: array<f32>;
+@group(0) @binding(1) var<uniform> params: EraseParams;
+
+const CHANNELS: u32 = 16u;
+
+fn cellIndex(x: u32, y: u32, c: u32) -> u32 {
+  return ((y * params.width + x) * CHANNELS) + c;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let x = id.x;
+  let y = id.y;
+  if (x >= params.width || y >= params.height) {
+    return;
+  }
+
+  let dx = i32(x) - i32(params.x);
+  let dy = i32(y) - i32(params.y);
+  let r = i32(params.radius);
+  if (dx * dx + dy * dy > r * r) {
+    return;
+  }
+
+  for (var c = 0u; c < CHANNELS; c = c + 1u) {
+    state[cellIndex(x, y, c)] = 0.0;
+  }
+}
+`;
